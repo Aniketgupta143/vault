@@ -1,0 +1,17 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+
+# Bytecode & Caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# SQLite & Runtime Storage
+*.db
+*.db-wal
+*.db-shm
+storage/
+test_storage/
+test_vault.db*

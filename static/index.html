@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VAULT | Distributed Object Storage</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="navbar">
+      <div class="brand">
+        <div class="logo-shield">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">VAULT</h1>
+          <p class="brand-subtitle">Fault-Tolerant Distributed Object Storage</p>
+        </div>
+      </div>
+
+      <div class="system-status-box">
+        <span class="status-indicator-dot" id="system-dot"></span>
+        <span class="status-label" id="system-status-text">HEALTHY</span>
+        <div class="refresh-toggle">
+          <span class="pulse-indicator"></span>
+          <span class="text-muted">Live Auto-Sync (2s)</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Action & Demo Bar -->
+    <section class="action-banner">
+      <div class="upload-widget">
+        <input type="file" id="file-input" style="display: none;" />
+        <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          Upload New Object
+        </button>
+        <span id="selected-filename" class="text-muted file-name-preview"></span>
+        <div class="rf-selector">
+          <label for="rf-select">Replication Factor:</label>
+          <select id="rf-select" class="select-input">
+            <option value="3" selected>3 Replicas (Quorum: 2)</option>
+            <option value="2">2 Replicas (Quorum: 2)</option>
+            <option value="1">1 Replica (No redundancy)</option>
+          </select>
+        </div>
+        <button id="btn-submit-upload" class="btn btn-success" style="display: none;" onclick="handleUpload()">Confirm Upload</button>
+      </div>
+
+      <div class="quick-tools">
+        <button class="btn btn-secondary" onclick="triggerScrubAll()" title="Scrub all replicas for SHA-256 integrity">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          Verify All Checksums
+        </button>
+        <button class="btn btn-secondary" onclick="triggerAutoRepair()" title="Manually scan and heal under-replicated objects">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+          Trigger Auto-Repair
+        </button>
+        <button class="btn btn-secondary" onclick="triggerRebalance()" title="Rebalance storage across nodes">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"></path><path d="m19 9-5 5-4-4-3 3"></path></svg>
+          Rebalance Cluster
+        </button>
+      </div>
+    </section>
+
+    <!-- Nodes Grid -->
+    <section class="section-container">
+      <div class="section-header">
+        <h2>STORAGE NODES</h2>
+        <span class="badge" id="nodes-count-badge">4 Nodes Active</span>
+      </div>
+      <div class="nodes-grid" id="nodes-container">
+        <!-- Rendered by JavaScript -->
+      </div>
+    </section>
+
+    <!-- Metrics Row -->
+    <section class="metrics-grid">
+      <!-- Storage Metrics Card -->
+      <div class="card metric-card">
+        <div class="metric-card-header">
+          <h3>STORAGE</h3>
+          <span class="icon-wrap">📦</span>
+        </div>
+        <div class="metric-stats">
+          <div class="stat-item">
+            <span class="stat-label">Total Objects</span>
+            <span class="stat-value" id="stat-objects">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Logical Size</span>
+            <span class="stat-value" id="stat-logical-size">0 B</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Physical Stored</span>
+            <span class="stat-value" id="stat-physical-size">0 B</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Storage Overhead</span>
+            <span class="stat-value highlight" id="stat-overhead">1.0x</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reliability Metrics Card -->
+      <div class="card metric-card">
+        <div class="metric-card-header">
+          <h3>RELIABILITY</h3>
+          <span class="icon-wrap">🛡️</span>
+        </div>
+        <div class="metric-stats">
+          <div class="stat-item">
+            <span class="stat-label">Healthy Replicas</span>
+            <span class="stat-value success" id="stat-healthy-replicas">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Failed Nodes</span>
+            <span class="stat-value danger" id="stat-failed-nodes">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Corrupted Replicas</span>
+            <span class="stat-value warning" id="stat-corrupted-replicas">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Completed Repairs</span>
+            <span class="stat-value info" id="stat-repairs">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Performance Metrics Card -->
+      <div class="card metric-card">
+        <div class="metric-card-header">
+          <h3>PERFORMANCE</h3>
+          <span class="icon-wrap">⚡</span>
+        </div>
+        <div class="metric-stats">
+          <div class="stat-item">
+            <span class="stat-label">Avg Repair Time</span>
+            <span class="stat-value" id="stat-avg-repair">0 ms</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Upload Latency</span>
+            <span class="stat-value" id="stat-upload-latency">0 ms</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Download Latency</span>
+            <span class="stat-value" id="stat-download-latency">0 ms</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Write Quorum</span>
+            <span class="stat-value info">2 of 3</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Objects Table -->
+    <section class="section-container">
+      <div class="section-header">
+        <h2>STORED OBJECTS</h2>
+        <span class="text-muted" id="objects-count-text">0 objects registered</span>
+      </div>
+
+      <div class="table-container">
+        <table class="vault-table">
+          <thead>
+            <tr>
+              <th>Filename</th>
+              <th>Object ID</th>
+              <th>Size</th>
+              <th>Version</th>
+              <th>SHA-256 Checksum</th>
+              <th>Replica Placements</th>
+              <th>Health</th>
+              <th style="text-align: right;">Demo Actions</th>
+            </tr>
+          </thead>
+          <tbody id="objects-table-body">
+            <!-- Dynamic rows -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Live Event Logs Terminal -->
+    <section class="section-container">
+      <div class="section-header">
+        <div class="flex-row">
+          <h2>SYSTEM AUDIT & EVENT LOG</h2>
+          <span class="pulse-indicator"></span>
+        </div>
+        <button class="btn btn-sm btn-secondary" onclick="fetchEvents()">Refresh Logs</button>
+      </div>
+      <div class="terminal-container" id="terminal-logs">
+        <!-- Terminal event rows -->
+      </div>
+    </section>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

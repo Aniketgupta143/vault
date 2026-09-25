@@ -1,0 +1,40 @@
+"""Configuration settings for the Vault Distributed Object Storage."""
+import os
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+STORAGE_DIR = BASE_DIR / "storage"
+DB_PATH = BASE_DIR / "vault.db"
+
+# Replication settings
+DEFAULT_REPLICATION_FACTOR = 3
+WRITE_QUORUM = 2
+
+# Storage Nodes
+INITIAL_NODES = ["node1", "node2", "node3", "node4"]
+DEFAULT_NODE_CAPACITY_BYTES = 100 * 1024 * 1024  # 100 MB default capacity
+
+# Health check & Auto-repair intervals (in seconds)
+HEARTBEAT_TIMEOUT_SECONDS = 15
+HEALTH_CHECK_INTERVAL_SECONDS = 5
+AUTO_REPAIR_INTERVAL_SECONDS = 3
+AUTO_REPAIR_ENABLED = True
+
+# Node status constants
+NODE_STATUS_HEALTHY = "HEALTHY"
+NODE_STATUS_FAILED = "FAILED"
+NODE_STATUS_RECOVERING = "RECOVERING"
+NODE_STATUS_DRAINING = "DRAINING"
+NODE_STATUS_DISCONNECTED = "DISCONNECTED"
+
+# Replica status constants
+REPLICA_STATUS_HEALTHY = "HEALTHY"
+REPLICA_STATUS_CORRUPTED = "CORRUPTED"
+REPLICA_STATUS_MISSING = "MISSING"
+REPLICA_STATUS_STALE = "STALE"
+
+# Repair job status
+REPAIR_STATUS_PENDING = "PENDING"
+REPAIR_STATUS_IN_PROGRESS = "IN_PROGRESS"
+REPAIR_STATUS_COMPLETED = "COMPLETED"
+REPAIR_STATUS_FAILED = "FAILED"
