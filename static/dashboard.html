@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VAULT | Distributed Object Storage</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --card-bg: #121826;
+      --card-border: #1f293d;
+      --card-hover: #192237;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #0ea5e9;
+      --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .navbar {
+      background: rgba(18, 24, 38, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--card-border);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      background: linear-gradient(135deg, #6366f1, #3b82f6);
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      font-weight: 800;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+    }
+    .brand-title { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.5px; }
+    .brand-subtitle { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+
+    .nav-stats {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 30px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+      flex: 1;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    .metrics-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 1rem;
+    }
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: transform 0.2s;
+    }
+    .metric-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+    .metric-title { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+    .metric-val { font-size: 1.45rem; font-weight: 800; font-family: var(--font-mono); color: #fff; }
+    .metric-sub { font-size: 0.72rem; color: var(--text-muted); }
+
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.2rem;
+    }
+    .upload-zone {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .btn:hover { background: var(--accent-hover); box-shadow: 0 0 15px rgba(99, 102, 241, 0.4); }
+    .btn-secondary {
+      background: #1e293b;
+      color: var(--text-main);
+      border: 1px solid var(--card-border);
+    }
+    .btn-secondary:hover { background: #334155; }
+    .btn-danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .btn-danger:hover { background: #ef4444; color: white; }
+    .btn-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .btn-warning:hover { background: #f59e0b; color: white; }
+    .btn-success { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .btn-success:hover { background: #10b981; color: white; }
+    .btn-sm { padding: 4px 10px; font-size: 0.75rem; border-radius: 6px; }
+
+    select, input[type="text"] {
+      background: #0f172a;
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .section-head h2 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nodes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: 1.25rem;
+    }
+    .node-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+      transition: all 0.2s;
+    }
+    .node-card.failed { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.04); }
+    .node-card.draining { border-color: rgba(245, 158, 11, 0.4); background: rgba(245, 158, 11, 0.04); }
+    .node-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .node-id { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; }
+    .node-status-pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 20px;
+      text-transform: uppercase;
+    }
+    .pill-healthy { background: rgba(16, 185, 129, 0.15); color: var(--success); }
+    .pill-draining { background: rgba(245, 158, 11, 0.15); color: var(--warning); }
+    .pill-failed { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+    .pill-safe { background: rgba(14, 165, 233, 0.15); color: var(--info); }
+
+    .node-progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .node-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #6366f1, #3b82f6);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .node-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
+    .dashboard-split {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 1024px) {
+      .dashboard-split { grid-template-columns: 1fr; }
+    }
+
+    .table-container {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.85rem;
+    }
+    th {
+      background: #0f172a;
+      color: var(--text-muted);
+      padding: 12px 16px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+    }
+    tr:last-child td { border-bottom: none; }
+    .obj-name { font-weight: 600; color: #fff; }
+    .obj-hash { font-family: var(--font-mono); color: var(--text-muted); font-size: 0.78rem; }
+    .replica-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin: 2px;
+      font-family: var(--font-mono);
+      background: #1e293b;
+    }
+    .rep-ok { color: var(--success); }
+    .rep-corrupt { color: var(--danger); font-weight: 700; background: rgba(239, 68, 68, 0.2); }
+
+    .console-card {
+      background: #0b0f19;
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      height: 480px;
+    }
+    .console-header {
+      padding: 10px 16px;
+      background: #0f172a;
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .console-logs {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 8px;
+    }
+    .log-item {
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.02);
+      border-left: 3px solid #6366f1;
+      line-height: 1.4;
+      word-break: break-all;
+    }
+    .log-item.UPLOAD { border-left-color: #3b82f6; }
+    .log-item.REPAIR { border-left-color: #10b981; }
+    .log-item.FAILURE { border-left-color: #ef4444; }
+    .log-item.INTEGRITY { border-left-color: #f59e0b; }
+    .log-item.ORPHAN_SWEEP { border-left-color: #0ea5e9; }
+    .log-item.TOPOLOGY { border-left-color: #8b5cf6; }
+    .log-tag {
+      font-weight: 700;
+      margin-right: 6px;
+      color: #94a3b8;
+    }
+
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-box {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="navbar">
+    <div class="brand-box">
+      <div class="brand-icon">🛡️</div>
+      <div>
+        <h1 class="brand-title">VAULT</h1>
+        <p class="brand-subtitle">Fault-Tolerant Distributed Object Storage</p>
+      </div>
+    </div>
+    <div class="nav-stats">
+      <div class="status-badge" id="system-status-badge">
+        <span class="status-dot"></span>
+        <span id="system-status-text">HEALTHY</span>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="fetchState()">🔄 Refresh</button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <section class="metrics-bar">
+      <div class="metric-card">
+        <span class="metric-title">Stored Keys</span>
+        <span class="metric-val" id="stat-keys">0</span>
+        <span class="metric-sub" id="stat-versions">0 total versions</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">Logical Size</span>
+        <span class="metric-val" id="stat-logical">0 B</span>
+        <span class="metric-sub">Client uploaded data</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">Physical Used</span>
+        <span class="metric-val" id="stat-physical">0 B</span>
+        <span class="metric-sub" id="stat-overhead">Overhead: 1.0x</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">Healthy Nodes</span>
+        <span class="metric-val" id="stat-nodes">0 / 0</span>
+        <span class="metric-sub" id="stat-nodes-detail">0 failed</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">Healed Repairs</span>
+        <span class="metric-val" id="stat-repairs">0</span>
+        <span class="metric-sub" id="stat-avg-repair">Avg: 0 ms</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-title">Mode & Latency</span>
+        <span class="metric-val" id="stat-mode">Replication</span>
+        <span class="metric-sub" id="stat-latency">Upload: 0ms | DL: 0ms</span>
+      </div>
+    </section>
+
+    <section class="action-bar">
+      <div class="upload-zone">
+        <input type="file" id="file-input" style="display: none;" onchange="handleFileSelected(event)" />
+        <button class="btn" onclick="document.getElementById('file-input').click()">
+          📤 Select File
+        </button>
+        <span id="selected-file-label" class="obj-hash" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No file selected</span>
+
+        <select id="storage-mode-select">
+          <option value="replication" selected>Mode: 3x Replication (Quorum 2)</option>
+          <option value="erasure_coding">Mode: Erasure Coding (4+2 Reed-Solomon)</option>
+        </select>
+
+        <button class="btn btn-success" id="btn-upload" style="display: none;" onclick="executeUpload()">
+          Confirm Upload
+        </button>
+      </div>
+
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-secondary btn-sm" onclick="triggerScrubAll()" title="Scrub all replicas for SHA-256 bit-rot">
+          🔍 Verify All Checksums
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openAddNodeModal()">
+          ➕ Add Node
+        </button>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>🖥️ Cluster Storage Nodes <span class="obj-hash" id="ring-info">Consistent Hash Ring</span></h2>
+      </div>
+      <div class="nodes-grid" id="nodes-container">
+      </div>
+    </section>
+
+    <section class="dashboard-split">
+      <div class="table-container">
+        <div style="padding: 12px 16px; border-bottom: 1px solid var(--card-border); font-weight: 700; display: flex; justify-content: space-between;">
+          <span>📦 Stored Objects</span>
+          <span class="obj-hash" id="objects-count">0 items</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Object Key</th>
+              <th>Version</th>
+              <th>Size</th>
+              <th>Placement & Replicas</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="objects-tbody">
+          </tbody>
+        </table>
+      </div>
+
+      <div class="console-card">
+        <div class="console-header">
+          <span>⚡ Live Cluster Events (SSE Stream)</span>
+          <span class="status-dot" style="color: var(--success);" title="Streaming active"></span>
+        </div>
+        <div class="console-logs" id="console-logs">
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <div class="modal-overlay" id="add-node-modal">
+    <div class="modal-box">
+      <h3>Add New Storage Node</h3>
+      <input type="text" id="new-node-id" placeholder="Node ID (e.g. node7, optional)" />
+      <input type="text" id="new-node-host" value="127.0.0.1" placeholder="Host" />
+      <input type="text" id="new-node-port" value="8007" placeholder="Port" />
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn btn-secondary" onclick="closeAddNodeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAddNode()">Join Ring</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedFile = null;
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function handleFileSelected(e) {
+      if (e.target.files.length > 0) {
+        selectedFile = e.target.files[0];
+        document.getElementById('selected-file-label').textContent = `${selectedFile.name} (${formatBytes(selectedFile.size)})`;
+        document.getElementById('btn-upload').style.display = 'inline-flex';
+      }
+    }
+
+    async function executeUpload() {
+      if (!selectedFile) return;
+      const btn = document.getElementById('btn-upload');
+      btn.disabled = true;
+      btn.textContent = 'Uploading...';
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('key', selectedFile.name);
+      formData.append('storage_mode', document.getElementById('storage-mode-select').value);
+
+      try {
+        const res = await fetch('/objects', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const err = await res.json();
+          alert('Upload failed: ' + (err.detail || res.statusText));
+        } else {
+          selectedFile = null;
+          document.getElementById('file-input').value = '';
+          document.getElementById('selected-file-label').textContent = 'No file selected';
+          btn.style.display = 'none';
+          fetchState();
+        }
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Confirm Upload';
+      }
+    }
+
+    async function fetchState() {
+      try {
+        const [metricsRes, nodesRes, objectsRes] = await Promise.all([
+          fetch('/metrics').then(r => r.json()),
+          fetch('/nodes').then(r => r.json()),
+          fetch('/objects').then(r => r.json())
+        ]);
+
+        renderMetrics(metricsRes);
+        renderNodes(nodesRes);
+        renderObjects(objectsRes);
+      } catch (err) {
+        console.error('Error fetching state:', err);
+      }
+    }
+
+    function renderMetrics(m) {
+      document.getElementById('stat-keys').textContent = m.total_keys;
+      document.getElementById('stat-versions').textContent = `${m.total_versions} total versions`;
+      document.getElementById('stat-logical').textContent = formatBytes(m.logical_bytes);
+      document.getElementById('stat-physical').textContent = formatBytes(m.physical_bytes);
+      document.getElementById('stat-overhead').textContent = `Overhead: ${m.storage_overhead}x`;
+      document.getElementById('stat-nodes').textContent = `${m.healthy_nodes} / ${m.total_nodes}`;
+      document.getElementById('stat-nodes-detail').textContent = `${m.failed_nodes} failed, ${m.draining_nodes} draining`;
+      document.getElementById('stat-repairs').textContent = m.completed_repairs;
+      document.getElementById('stat-avg-repair').textContent = `Avg: ${m.avg_repair_duration_ms} ms`;
+      document.getElementById('stat-mode').textContent = m.storage_mode === 'erasure_coding' ? 'Reed-Solomon (4+2)' : 'Replication (RF=3)';
+      document.getElementById('stat-latency').textContent = `Up: ${m.upload_latency_ms}ms | DL: ${m.download_latency_ms}ms`;
+
+      const badge = document.getElementById('system-status-badge');
+      const text = document.getElementById('system-status-text');
+      text.textContent = m.system_status;
+      if (m.system_status === 'HEALTHY') {
+        badge.style.color = 'var(--success)';
+        badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+      } else if (m.system_status === 'DEGRADED') {
+        badge.style.color = 'var(--warning)';
+        badge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+      } else {
+        badge.style.color = 'var(--danger)';
+        badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+      }
+    }
+
+    function renderNodes(nodes) {
+      const container = document.getElementById('nodes-container');
+      container.innerHTML = '';
+
+      nodes.forEach(n => {
+        const card = document.createElement('div');
+        card.className = `node-card ${n.status.toLowerCase()}`;
+
+        const pct = Math.min(100, Math.round((n.used_storage / n.capacity) * 100));
+        let pillClass = 'pill-healthy';
+        if (n.status === 'DRAINING') pillClass = 'pill-draining';
+        if (n.status === 'FAILED' || n.status === 'DISCONNECTED') pillClass = 'pill-failed';
+        if (n.status === 'SAFE_TO_REMOVE') pillClass = 'pill-safe';
+
+        card.innerHTML = `
+          <div class="node-card-head">
+            <span class="node-id">${n.node_id.toUpperCase()}</span>
+            <span class="node-status-pill ${pillClass}">${n.status}</span>
+          </div>
+          <div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 4px;">
+              <span class="obj-hash">${formatBytes(n.used_storage)} / ${formatBytes(n.capacity)}</span>
+              <span class="obj-hash">${n.active_replicas_count} shards</span>
+            </div>
+            <div class="node-progress-bar">
+              <div class="node-progress-fill" style="width: ${pct}%"></div>
+            </div>
+          </div>
+          <div class="node-actions">
+            ${n.status === 'HEALTHY' ? `
+              <button class="btn btn-danger btn-sm" onclick="failNode('${n.node_id}')">💥 Fail</button>
+              <button class="btn btn-warning btn-sm" onclick="drainNode('${n.node_id}')">🚿 Drain</button>
+            ` : ''}
+            ${n.status === 'FAILED' || n.status === 'DISCONNECTED' ? `
+              <button class="btn btn-success btn-sm" onclick="recoverNode('${n.node_id}')">🟢 Recover</button>
+              <button class="btn btn-danger btn-sm" onclick="removeNode('${n.node_id}')">🗑️ Remove</button>
+            ` : ''}
+            ${n.status === 'SAFE_TO_REMOVE' ? `
+              <button class="btn btn-danger btn-sm" onclick="removeNode('${n.node_id}')">🗑️ Remove</button>
+            ` : ''}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderObjects(objects) {
+      const tbody = document.getElementById('objects-tbody');
+      tbody.innerHTML = '';
+      document.getElementById('objects-count').textContent = `${objects.length} items`;
+
+      if (objects.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No objects uploaded yet. Select a file above!</td></tr>';
+        return;
+      }
+
+      objects.forEach(obj => {
+        const tr = document.createElement('tr');
+        const replicasHtml = (obj.replicas || []).map(r => {
+          const isOk = r.status === 'HEALTHY' && r.node_status === 'HEALTHY';
+          return `<span class="replica-pill ${isOk ? 'rep-ok' : 'rep-corrupt'}">
+            ${r.node_id}${r.shard_index !== 0 ? '#' + r.shard_index : ''}: ${r.status}
+          </span>`;
+        }).join('');
+
+        tr.innerHTML = `
+          <td>
+            <div class="obj-name">${obj.key}</div>
+            <div class="obj-hash">${obj.latest_checksum.slice(0, 16)}...</div>
+          </td>
+          <td><span class="replica-pill">v${obj.latest_version}</span></td>
+          <td>${formatBytes(obj.latest_size)}</td>
+          <td>${replicasHtml}</td>
+          <td>
+            <div style="display: flex; gap: 4px;">
+              <button class="btn btn-secondary btn-sm" onclick="downloadObject('${obj.key}')" title="Download file">⬇️</button>
+              <button class="btn btn-warning btn-sm" onclick="corruptObject('${obj.key}')" title="Inject bit-rot into a replica">💥</button>
+              <button class="btn btn-success btn-sm" onclick="repairObject('${obj.key}')" title="Heal object replicas">🩹</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteObject('${obj.key}')" title="Delete object">🗑️</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function failNode(nodeId) {
+      await fetch(`/nodes/${nodeId}/fail`, { method: 'POST' });
+      fetchState();
+    }
+    async function recoverNode(nodeId) {
+      await fetch(`/nodes/${nodeId}/recover`, { method: 'POST' });
+      fetchState();
+    }
+    async function drainNode(nodeId) {
+      await fetch(`/nodes/${nodeId}/drain`, { method: 'POST' });
+      fetchState();
+    }
+    async function removeNode(nodeId) {
+      await fetch(`/nodes/${nodeId}`, { method: 'DELETE' });
+      fetchState();
+    }
+    async function corruptObject(key) {
+      await fetch(`/objects/${encodeURIComponent(key)}/corrupt`, { method: 'POST' });
+      fetchState();
+    }
+    async function repairObject(key) {
+      await fetch(`/objects/${encodeURIComponent(key)}/repair`, { method: 'POST' });
+      fetchState();
+    }
+    async function deleteObject(key) {
+      if (confirm(`Delete '${key}'?`)) {
+        await fetch(`/objects/${encodeURIComponent(key)}`, { method: 'DELETE' });
+        fetchState();
+      }
+    }
+    function downloadObject(key) {
+      window.location.href = `/objects/${encodeURIComponent(key)}/download`;
+    }
+    async function triggerScrubAll() {
+      await fetch('/objects/verify/all', { method: 'POST' });
+      fetchState();
+    }
+
+    function openAddNodeModal() { document.getElementById('add-node-modal').style.display = 'flex'; }
+    function closeAddNodeModal() { document.getElementById('add-node-modal').style.display = 'none'; }
+    async function submitAddNode() {
+      const nid = document.getElementById('new-node-id').value;
+      const host = document.getElementById('new-node-host').value;
+      const port = parseInt(document.getElementById('new-node-port').value);
+      await fetch('/nodes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_id: nid || undefined, host, port })
+      });
+      closeAddNodeModal();
+      fetchState();
+    }
+
+    function initSSE() {
+      const evtSource = new EventSource('/events/stream');
+      const consoleBox = document.getElementById('console-logs');
+
+      evtSource.onmessage = function(e) {
+        try {
+          const item = JSON.parse(e.data);
+          const div = document.createElement('div');
+          div.className = `log-item ${item.category}`;
+          const timeStr = new Date(item.timestamp * 1000).toLocaleTimeString();
+          div.innerHTML = `<span class="obj-hash">[${timeStr}]</span> <span class="log-tag">[${item.category}]</span> ${item.message}`;
+          consoleBox.prepend(div);
+          if (consoleBox.children.length > 80) consoleBox.removeChild(consoleBox.lastChild);
+
+          if (['UPLOAD', 'REPAIR', 'FAILURE', 'ORPHAN_SWEEP', 'TOPOLOGY', 'INTEGRITY'].includes(item.category)) {
+            fetchState();
+          }
+        } catch (err) {}
+      };
+
+      evtSource.onerror = function() {
+        console.warn('SSE connection lost, reconnecting...');
+      };
+    }
+
+    fetchState();
+    initSSE();
+    setInterval(fetchState, 3000);
+  </script>
+</body>
+</html>
