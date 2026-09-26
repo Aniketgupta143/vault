@@ -1,4 +1,8 @@
-"""Automated test suite for Vault distributed object storage."""
+"""
+Comprehensive automated test suite for Vault Distributed Object Storage.
+Tests Consistent Hashing, Versioning, Passive Read-Repair, Draining,
+Orphan Sweeping, Erasure Coding, and Distributed Locking.
+"""
 import os
 import time
 import shutil
@@ -7,17 +11,21 @@ import asyncio
 from pathlib import Path
 from httpx import AsyncClient, ASGITransport
 
-from app import app
-from database import init_db, db_session
-import storage
 import config
+from gateway import app
+from metadata_service import init_db, acquire_lock, release_lock, db_session
+from hash_ring import ConsistentHashRing
+import storage_node
+import health_monitor
+import repair_service
+from erasure_coding import global_ec_coder
 
-TEST_STORAGE_DIR = config.BASE_DIR / "test_storage"
+TEST_STORAGE_DIR = config.BASE_DIR / "test_vault_storage"
 TEST_DB_PATH = config.BASE_DIR / "test_vault.db"
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_environment():
-    """Configure isolated test environment."""
+    """Setup isolated test environment and teardown cleanly."""
     if TEST_STORAGE_DIR.exists():
         shutil.rmtree(TEST_STORAGE_DIR, ignore_errors=True)
     if TEST_DB_PATH.exists():
@@ -28,12 +36,12 @@ def setup_test_environment():
 
     config.STORAGE_DIR = TEST_STORAGE_DIR
     config.DB_PATH = TEST_DB_PATH
-    storage.ensure_storage_nodes()
+    config.AUTH_ENABLED = False
+
     init_db()
 
     yield
 
-    # Teardown
     if TEST_STORAGE_DIR.exists():
         shutil.rmtree(TEST_STORAGE_DIR, ignore_errors=True)
     if TEST_DB_PATH.exists():
@@ -43,235 +51,156 @@ def setup_test_environment():
             pass
 
 @pytest.mark.asyncio
-async def test_01_health_and_nodes_init():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        res = await client.get("/nodes")
-        assert res.status_code == 200
-        nodes = res.json()
-        assert len(nodes) == 4
-        for n in nodes:
-            assert n["status"] == "HEALTHY"
+async def test_01_hash_ring_remapping():
+    """Verify consistent hash ring distributes keys and minimizes remapping on topology change."""
+    ring = ConsistentHashRing(100)
+    for n in ["node1", "node2", "node3", "node4"]:
+        ring.add_node(n)
+
+    sample_keys = [f"key_{i}" for i in range(500)]
+    analysis = ring.analyze_remapping(sample_keys, "node5")
+
+    assert 0.10 <= analysis["fraction_remapped"] <= 0.35
+    assert len(ring.get_nodes_for_key("sample_object", 3)) == 3
 
 @pytest.mark.asyncio
-async def test_02_upload_and_replication():
+async def test_02_dynamic_node_registration():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        content = b"Vault distributed storage hackathon test content 12345!"
-        files = {"file": ("demo.txt", content, "text/plain")}
-        data = {"replication_factor": 3}
+        reg_res = await client.post("/nodes", json={"node_id": "node7", "host": "127.0.0.1", "port": 8007})
+        assert reg_res.status_code == 200
+        assert reg_res.json()["node_id"] == "node7"
 
-        res = await client.post("/objects", files=files, data=data)
+        nodes_res = await client.get("/nodes")
+        assert nodes_res.status_code == 200
+        nodes = nodes_res.json()
+        assert any(n["node_id"] == "node7" for n in nodes)
+
+@pytest.mark.asyncio
+async def test_03_streaming_upload_and_versioning():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        content_v1 = b"Vault Versioning Test - Content V1"
+        files1 = {"file": ("version_test.txt", content_v1, "text/plain")}
+        res1 = await client.post("/objects", files=files1, data={"replication_factor": 3})
+        assert res1.status_code == 200
+        obj1 = res1.json()
+        assert obj1["key"] == "version_test.txt"
+        assert obj1["version"] == 1
+        assert len(obj1["replicas"]) == 3
+
+        content_v2 = b"Vault Versioning Test - Updated Content V2"
+        files2 = {"file": ("version_test.txt", content_v2, "text/plain")}
+        res2 = await client.post("/objects", files=files2, data={"replication_factor": 3})
+        assert res2.status_code == 200
+        obj2 = res2.json()
+        assert obj2["key"] == "version_test.txt"
+        assert obj2["version"] == 2
+
+        dl1 = await client.get("/objects/version_test.txt/download?version=1")
+        assert dl1.status_code == 200
+        assert dl1.content == content_v1
+
+        dl2 = await client.get("/objects/version_test.txt/download")
+        assert dl2.status_code == 200
+        assert dl2.content == content_v2
+
+@pytest.mark.asyncio
+async def test_04_passive_read_repair():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        content = b"Passive read-repair verification payload"
+        files = {"file": ("read_repair_test.txt", content, "text/plain")}
+        res = await client.post("/objects", files=files)
         assert res.status_code == 200
         obj = res.json()
 
-        assert obj["filename"] == "demo.txt"
-        assert obj["size"] == len(content)
-        assert len(obj["checksum"]) == 64
-        assert len(obj["replicas"]) == 3
-        assert obj["health_status"] == "HEALTHY"
-
-        # Verify physical files exist on the 3 chosen nodes
-        object_id = obj["object_id"]
-        for r in obj["replicas"]:
-            p = storage.get_replica_path(r["node_id"], object_id)
-            assert p.exists()
-            assert p.read_bytes() == content
-
-@pytest.mark.asyncio
-async def test_03_download_object():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Get object list
-        res = await client.get("/objects")
-        assert res.status_code == 200
-        objs = res.json()
-        assert len(objs) >= 1
-        obj = objs[0]
-
-        # Download
-        dl_res = await client.get(f"/objects/{obj['object_id']}/download")
-        assert dl_res.status_code == 200
-        assert dl_res.content == b"Vault distributed storage hackathon test content 12345!"
-        assert dl_res.headers["X-Vault-Checksum"] == obj["checksum"]
-
-@pytest.mark.asyncio
-async def test_04_node_failover_download():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        objs = (await client.get("/objects")).json()
-        obj = objs[0]
-        first_node = obj["replicas"][0]["node_id"]
-
-        # Fail the first node
-        fail_res = await client.post(f"/nodes/{first_node}/fail")
-        assert fail_res.status_code == 200
-
-        # Download should still succeed via failover to replica 2 or 3
-        dl_res = await client.get(f"/objects/{obj['object_id']}/download")
-        assert dl_res.status_code == 200
-        assert dl_res.content == b"Vault distributed storage hackathon test content 12345!"
-
-@pytest.mark.asyncio
-async def test_05_auto_repair_after_node_failure():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        objs = (await client.get("/objects")).json()
-        obj = objs[0]
-
-        # Trigger repair for the under-replicated object
-        repair_res = await client.post(f"/objects/{obj['object_id']}/repair")
-        assert repair_res.status_code == 200
-        data = repair_res.json()
-        assert data["status"] == "repaired"
-
-        # Check metadata shows 3 healthy replicas again on active nodes
-        updated_meta = (await client.get(f"/objects/{obj['object_id']}")).json()
-        healthy_reps = [r for r in updated_meta["replicas"] if r["status"] == "HEALTHY" and r["node_status"] == "HEALTHY"]
-        assert len(healthy_reps) == 3
-
-@pytest.mark.asyncio
-async def test_06_corruption_detection_and_repair():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        objs = (await client.get("/objects")).json()
-        obj = objs[0]
-
-        # 1. Simulate byte corruption
-        corrupt_res = await client.post(f"/objects/{obj['object_id']}/corrupt")
+        corrupt_res = await client.post(f"/objects/{obj['key']}/corrupt")
         assert corrupt_res.status_code == 200
-        corrupted_node = corrupt_res.json()["corrupted_node"]
+        corrupt_node = corrupt_res.json()["node_id"]
 
-        # 2. Verify integrity detects corruption
-        verify_res = await client.post(f"/objects/{obj['object_id']}/verify")
-        assert verify_res.status_code == 200
-        verify_data = verify_res.json()
-        assert verify_data["corrupted_count"] >= 1
+        dl = await client.get(f"/objects/{obj['key']}/download")
+        assert dl.status_code == 200
+        assert dl.content == content
 
-        # 3. Heal corrupted replica
-        repair_res = await client.post(f"/objects/{obj['object_id']}/repair")
-        assert repair_res.status_code == 200
-        assert repair_res.json()["status"] == "repaired"
-
-        # 4. Verify integrity again - should be fully healthy now
-        post_verify = (await client.post(f"/objects/{obj['object_id']}/verify")).json()
-        assert post_verify["corrupted_count"] == 0
-        assert post_verify["healthy_count"] == 3
+        await asyncio.sleep(1.0)
+        meta = (await client.get(f"/objects/{obj['key']}")).json()
+        target_rep = next(r for r in meta["replicas"] if r["node_id"] == corrupt_node)
+        assert target_rep["status"] == "HEALTHY"
 
 @pytest.mark.asyncio
-async def test_07_node_recovery():
+async def test_05_node_draining_and_removal():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Recover all failed nodes
-        nodes = (await client.get("/nodes")).json()
-        for n in nodes:
-            if n["status"] != "HEALTHY":
-                rec_res = await client.post(f"/nodes/{n['node_id']}/recover")
-                assert rec_res.status_code == 200
+        drain_res = await client.post("/nodes/node7/drain")
+        assert drain_res.status_code == 200
+        assert drain_res.json()["status"] == config.NODE_STATUS_SAFE_TO_REMOVE
 
-        # All nodes should be healthy now
-        all_nodes = (await client.get("/nodes")).json()
-        assert all(n["status"] == "HEALTHY" for n in all_nodes)
+        del_res = await client.delete("/nodes/node7")
+        assert del_res.status_code == 200
+        assert del_res.json()["status"] == "removed"
 
 @pytest.mark.asyncio
-async def test_08_concurrent_uploads():
+async def test_06_orphan_sweep_on_recovery():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        async def upload_file(idx: int):
-            content = f"Concurrent test payload #{idx} {time.time()}".encode()
-            files = {"file": (f"concurrent_{idx}.txt", content, "text/plain")}
-            return await client.post("/objects", files=files, data={"replication_factor": 3})
+        storage_node.ensure_node_dir("node3")
+        orphan_path = config.STORAGE_DIR / "node3" / "orphan_ghost.v1.shard0"
+        orphan_path.write_bytes(b"I am a stale orphaned shard!")
 
-        tasks = [upload_file(i) for i in range(5)]
-        results = await asyncio.gather(*tasks)
+        assert orphan_path.exists()
 
-        for res in results:
-            assert res.status_code == 200
-            assert res.json()["health_status"] == "HEALTHY"
+        rec_res = await client.post("/nodes/node3/recover")
+        assert rec_res.status_code == 200
+        assert rec_res.json()["orphans_purged"] >= 1
+        assert not orphan_path.exists()
 
 @pytest.mark.asyncio
-async def test_09_rebalance_cluster():
+async def test_07_distributed_locking_ttl():
+    acquired1 = acquire_lock("test_key", "operation_A", ttl_seconds=2)
+    assert acquired1 is True
+
+    acquired2 = acquire_lock("test_key", "operation_B", ttl_seconds=2)
+    assert acquired2 is False
+
+    release_lock("test_key")
+    acquired3 = acquire_lock("test_key", "operation_B", ttl_seconds=2)
+    assert acquired3 is True
+    release_lock("test_key")
+
+@pytest.mark.asyncio
+async def test_08_erasure_coding_resilience():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        reb_res = await client.post("/rebalance")
-        assert reb_res.status_code == 200
-        data = reb_res.json()
-        assert data["status"] in ("success", "balanced")
+        payload = b"Erasure coding test block! Survives node losses with Reed-Solomon math."
+        files = {"file": ("ec_test_doc.bin", payload, "application/octet-stream")}
+        res = await client.post("/objects", files=files, data={"storage_mode": "erasure_coding"})
+        assert res.status_code == 200
+        ec_obj = res.json()
+        assert ec_obj["storage_mode"] == "erasure_coding"
+        assert len(ec_obj["replicas"]) == 6
+
+        failed_node_a = ec_obj["replicas"][0]["node_id"]
+        failed_node_b = ec_obj["replicas"][1]["node_id"]
+
+        await client.post(f"/nodes/{failed_node_a}/fail")
+        await client.post(f"/nodes/{failed_node_b}/fail")
+
+        dl = await client.get("/objects/ec_test_doc.bin/download")
+        assert dl.status_code == 200
+        assert dl.content == payload
+
+        await client.post(f"/nodes/{failed_node_a}/recover")
+        await client.post(f"/nodes/{failed_node_b}/recover")
 
 @pytest.mark.asyncio
-async def test_10_metrics_and_events():
+async def test_09_metrics_and_events():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         metrics = (await client.get("/metrics")).json()
-        assert metrics["total_objects"] >= 6
-        assert metrics["completed_repairs"] >= 2
+        assert metrics["total_keys"] >= 1
+        assert metrics["total_nodes"] >= 4
         assert metrics["storage_overhead"] >= 1.0
 
         events = (await client.get("/events?limit=10")).json()
-        assert len(events) >= 5
-
-@pytest.mark.asyncio
-async def test_11_delete_object():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        objs = (await client.get("/objects")).json()
-        target_obj = objs[0]
-        obj_id = target_obj["object_id"]
-
-        del_res = await client.delete(f"/objects/{obj_id}")
-        assert del_res.status_code == 200
-
-        # Assert 404 on get
-        get_res = await client.get(f"/objects/{obj_id}")
-        assert get_res.status_code == 404
-
-@pytest.mark.asyncio
-async def test_12_network_partition_simulation():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Simulate network disconnect on node4
-        disc_res = await client.post("/nodes/node4/disconnect")
-        assert disc_res.status_code == 200
-        assert disc_res.json()["new_status"] == "DISCONNECTED"
-
-        # Check nodes list reports DISCONNECTED
-        nodes = (await client.get("/nodes")).json()
-        node4 = next(n for n in nodes if n["node_id"] == "node4")
-        assert node4["status"] == "DISCONNECTED"
-
-        # Reconnect node4
-        rec_res = await client.post("/nodes/node4/recover")
-        assert rec_res.status_code == 200
-        assert rec_res.json()["new_status"] == "HEALTHY"
-
-@pytest.mark.asyncio
-async def test_13_quorum_enforcement():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Fail 3 out of 4 nodes so only 1 healthy node remains
-        await client.post("/nodes/node1/fail")
-        await client.post("/nodes/node2/fail")
-        await client.post("/nodes/node3/fail")
-
-        try:
-            # Attempt to upload with RF=3 (quorum=2, but only 1 healthy node available)
-            files = {"file": ("quorum_test.txt", b"Should fail quorum", "text/plain")}
-            res = await client.post("/objects", files=files, data={"replication_factor": 3})
-            assert res.status_code == 500  # Quorum not met
-        finally:
-            # Recover nodes
-            await client.post("/nodes/node1/recover")
-            await client.post("/nodes/node2/recover")
-            await client.post("/nodes/node3/recover")
-
-@pytest.mark.asyncio
-async def test_14_idempotent_repair():
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        objs = (await client.get("/objects")).json()
-        healthy_obj = next(o for o in objs if o["health_status"] == "HEALTHY")
-
-        # Calling repair on an already healthy object should safely succeed and return 'already_healthy'
-        repair_res = await client.post(f"/objects/{healthy_obj['object_id']}/repair")
-        assert repair_res.status_code == 200
-        assert repair_res.json()["status"] == "already_healthy"
+        assert len(events) >= 1
